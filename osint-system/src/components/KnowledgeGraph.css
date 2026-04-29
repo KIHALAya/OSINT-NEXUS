@@ -1,0 +1,115 @@
+.graph-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.graph-legend {
+  display: flex;
+  gap: 14px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.graph-layout {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 14px;
+  align-items: start;
+}
+
+.graph-svg-wrap {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.graph-svg {
+  width: 100%;
+  display: block;
+}
+
+.graph-info-panel {
+  min-height: 300px;
+}
+
+.graph-node-detail {
+  height: 100%;
+}
+
+.node-type-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid;
+}
+
+[data-type="subject"] { color: var(--cyan); border-color: rgba(0,200,255,0.3); background: rgba(0,200,255,0.06); }
+[data-type="high"] { color: var(--green); border-color: rgba(0,230,118,0.3); background: rgba(0,230,118,0.06); }
+[data-type="medium"] { color: var(--amber); border-color: rgba(255,184,0,0.3); background: rgba(255,184,0,0.06); }
+[data-type="misinfo"] { color: var(--red); border-color: rgba(255,59,92,0.3); background: rgba(255,59,92,0.06); }
+[data-type="low"] { color: var(--text-dim); border-color: var(--border-dim); background: transparent; }
+[data-type="evidence"] { color: var(--purple); border-color: rgba(156,107,255,0.3); background: rgba(156,107,255,0.06); }
+[data-type="evidence-unverified"] { color: var(--amber); border-color: rgba(255,184,0,0.3); background: rgba(255,184,0,0.06); }
+[data-type="contradiction"] { color: var(--red); border-color: rgba(255,59,92,0.3); background: rgba(255,59,92,0.06); }
+
+.section-mini-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cyan-dim);
+  margin-bottom: 6px;
+}
+
+.edge-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.edge-item:last-child { border-bottom: none; }
+
+.graph-legend-full {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legend-full-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edge-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}

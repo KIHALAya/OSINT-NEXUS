@@ -1,0 +1,234 @@
+.ci-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.ci-section-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cyan-dim);
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.ci-section { margin-bottom: 4px; }
+
+/* Pipeline */
+.pipeline-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.step-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  text-align: center;
+  width: 130px;
+  transition: all 0.2s;
+}
+
+.step-card.complete {
+  border-color: rgba(0,230,118,0.2);
+  background: rgba(0,230,118,0.03);
+}
+
+.step-card.pending {
+  opacity: 0.5;
+}
+
+.step-icon {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.step-num {
+  font-size: 8px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+
+.step-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.step-sub {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.step-status {
+  font-size: 8px;
+  letter-spacing: 0.06em;
+}
+
+.step-status.complete { color: var(--green); }
+.step-status.pending { color: var(--text-dim); }
+
+.pipeline-arrow {
+  color: var(--text-dim);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* Bottom grid */
+.ci-bottom-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+/* Stats cards */
+.stats-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ci-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+}
+
+.ci-stat-val {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  min-width: 44px;
+  line-height: 1;
+}
+
+.ci-stat-val.cyan { color: var(--cyan); }
+.ci-stat-val.amber { color: var(--amber); }
+.ci-stat-val.teal { color: var(--teal); }
+.ci-stat-val.green { color: var(--green); }
+.ci-stat-val.red { color: var(--red); }
+
+.ci-stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Platform bars */
+.platform-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.platform-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pb-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.pb-bar-wrap {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pb-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.8s ease;
+}
+
+.pb-count {
+  font-size: 10px;
+  color: var(--text-secondary);
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.pb-pct {
+  font-size: 9px;
+  color: var(--text-dim);
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Raw intel */
+.raw-intel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.raw-intel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+
+.raw-intel-item.flagged {
+  border-color: rgba(255,59,92,0.2);
+  background: rgba(255,59,92,0.03);
+}
+
+.ri-source-badge {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: var(--cyan-dim);
+  padding: 1px 5px;
+  border: 1px solid rgba(0,200,255,0.2);
+  border-radius: 2px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.ri-claim {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+  min-width: 120px;
+}
+
+.ri-metrics {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}

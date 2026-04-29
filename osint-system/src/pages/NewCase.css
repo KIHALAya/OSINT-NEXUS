@@ -1,0 +1,66 @@
+.newcase-page { min-height: 100vh; }
+.newcase-body {
+  display: flex; justify-content: center; align-items: flex-start;
+  padding: 40px 20px; min-height: calc(100vh - 56px);
+}
+.newcase-card { width: 100%; max-width: 640px; }
+
+.newcase-steps {
+  display: flex; gap: 0; padding: 16px 20px;
+  border-bottom: 1px solid var(--border-dim);
+}
+.nc-step {
+  display: flex; align-items: center; gap: 8px; flex: 1;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+.nc-step-dot {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--bg-elevated); border: 1px solid var(--border-dim);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; flex-shrink: 0;
+}
+.nc-step.active .nc-step-dot { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-ghost); }
+.nc-step.active { color: var(--cyan); }
+.nc-step.done .nc-step-dot { border-color: var(--green); color: var(--green); background: rgba(0,230,118,0.1); }
+.nc-step.done { color: var(--green); }
+
+.newcase-form { padding: 24px 20px; }
+.form-step { display: flex; flex-direction: column; gap: 14px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-field { display: flex; flex-direction: column; }
+
+.upload-zone {
+  border: 1px dashed var(--border-mid); border-radius: var(--radius-lg);
+  padding: 32px; text-align: center; cursor: pointer;
+  transition: all 0.2s; background: var(--bg-deep);
+}
+.upload-zone:hover { border-color: var(--cyan); background: var(--cyan-ghost); }
+.upload-icon { font-size: 32px; margin-bottom: 8px; }
+.upload-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.upload-sub { font-size: 11px; color: var(--text-dim); }
+
+.config-section { margin-bottom: 20px; }
+.config-title { font-size: 9px; letter-spacing: 0.12em; color: var(--cyan-dim); margin-bottom: 10px; display: block; }
+.config-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0; border-bottom: 1px solid var(--border-dim);
+}
+.config-toggle:last-child { border-bottom: none; }
+.toggle {
+  width: 32px; height: 16px; border-radius: 8px;
+  background: var(--bg-elevated); border: 1px solid var(--border-mid);
+  position: relative; cursor: pointer; transition: all 0.2s;
+}
+.toggle.active { background: var(--cyan); border-color: var(--cyan); }
+.toggle::after {
+  content: ''; position: absolute; width: 10px; height: 10px;
+  border-radius: 50%; background: white; top: 2px;
+  left: 2px; transition: transform 0.2s;
+}
+.toggle.active::after { transform: translateX(16px); }
+
+.newcase-footer {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px; border-top: 1px solid var(--border-dim);
+}

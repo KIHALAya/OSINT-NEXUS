@@ -1,0 +1,16 @@
+fastapi
+functools
+httpx
+uvicorn
+pydantic
+pydantic-settings
+requests
+sqlalchemy
+psycopg2-binary
+pytest
+redis
+langchain
+langchain_core
+langgraph
+google-generativeai
+python-dotenv

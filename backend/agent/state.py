@@ -86,6 +86,8 @@ class CaseState(TypedDict):
     # ── Incoming trigger (changes each run) ───────────────────────────────────
     incoming_post: IncomingPost | None
 
+    subject_description : str
+
     # ── Accumulated context (grows across ALL runs for this case) ─────────────
     # operator.add means each node can append to these lists
     all_claims: Annotated[list[ExtractedClaim], operator.add]
@@ -100,12 +102,23 @@ class CaseState(TypedDict):
     # Last search result (replaced each run, not accumulated)
     last_tiktok_search: TikTokSearchResult | None
 
+    #video  analysis results 
+    video_analysis: Annotated[list[VideoSignals], operator.add]
+
+     # NEW: tracks which post_ids have been analyzed so we never repeat
+    # This is a set serialised as list (TypedDict doesn't support set)
+    analyzed_post_ids: Annotated[list[str], operator.add]
+ 
+    # NEW: posts the selector node queued for analysis this run
+    video_analysis_queue: list[dict]    # list of {post_id, video_url}
+
     # Known viral content on TikTok for this case
     # Updated by the misinfo filter when it detects amplification patterns
     tiktok_viral_flags: Annotated[list[dict], operator.add]
 
     # ── Routing signals (set each run, read by conditional edges) ─────────────
     needs_tiktok_search: bool       # should the agent call search_tiktok?
+    needs_video_analysis : bool
     needs_verification: list[str]   # cluster_ids above scoring threshold
     needs_human_review: bool
 
@@ -113,3 +126,4 @@ class CaseState(TypedDict):
     extracted_claims_this_run: list[ExtractedClaim]
     scores_this_run: dict[str, float]
     misinfo_flags_this_run: list[dict]
+    tiktok_viral_flags : Annotated[list[dict], operator.add]

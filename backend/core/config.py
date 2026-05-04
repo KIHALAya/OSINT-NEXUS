@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     QDRANT_URL:str
     REDIS_URL:str
     GEMINI_API_KEY: str
+    VIDEO_MIN_PLAYS:int
+    VIDEO_MIN_SHARES:int
+    VIDEO_MAX_PER_RUN:int
     APIFY_TOKEN: str
     APIFY_ACTOR_TIKTOK: str 
     APIFY_TIMEOUT_SECONDS:int
@@ -21,6 +24,8 @@ class Settings(BaseSettings):
     STREAM_RAW_POSTS:str 
     STREAM_NORMALIZED_POSTS:str 
     GOOGLE_APPLICATION_CREDENTIALS:str
+
+
 
 
 settings = Settings()

@@ -22,8 +22,20 @@ from typing import Any
 
 from agent.state import CaseState, ExtractedClaim, AgentStep, IncomingPost
 from tools.tiktok_search import search_tiktok, TikTokPost, TikTokSearchResult
+from tools.video_analysis import analyze_video, VideoSignals
 
 logger = logging.getLogger(__name__)
+
+# A post must exceed AT LEAST ONE of these to be worth video analysis
+VIDEO_ANALYSIS_MIN_PLAYS  = 5_000
+VIDEO_ANALYSIS_MIN_SHARES = 50
+ 
+# Never analyze more than this many videos per agent run
+# (protects free tier quota — 1500/day total)
+MAX_VIDEOS_PER_RUN = 5
+ 
+# Bot score must be below this threshold
+BOT_SCORE_MAX = 0.4
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -219,7 +231,445 @@ async def tiktok_ingestor_node(state: CaseState) -> dict:
         "agent_trace": [trace],
     }
 
-
+# ── Node: video_selector ──────────────────────────────────────────────────────
+ 
+async def video_selector_node(state: CaseState) -> dict:
+    """
+    Decides which TikTok posts from this run are worth video analysis.
+ 
+    Selection criteria (ALL must be true):
+      1. Has a downloadable video URL (videoUrl field from Apify)
+      2. Meets engagement threshold (plays > 5k OR shares > 50)
+      3. bot_score < 0.4
+      4. Not already analyzed in a previous run
+ 
+    Writes:
+      video_analysis_queue  → list of {post_id, video_url} to analyze
+      needs_video_analysis  → True if queue is non-empty
+    """
+    tiktok_posts = state.get("tiktok_posts", [])
+    already_analyzed = set(state.get("analyzed_post_ids", []))
+ 
+    queue = []
+    skipped_reasons: dict[str, int] = {
+        "no_url": 0, "low_engagement": 0, "high_bot": 0, "already_done": 0
+    }
+ 
+    for post in tiktok_posts:
+        # post is a TikTokPost pydantic object
+        video_url = getattr(post, "video_url", None) or getattr(post, "url", None)
+ 
+        if not video_url or "video" not in video_url.lower():
+            # Apify returns the TikTok page URL in `url` and the direct
+            # video URL in `videoUrl` — check both
+            video_url = getattr(post, "video_download_url", None)
+ 
+        if not video_url:
+            skipped_reasons["no_url"] += 1
+            continue
+ 
+        if post.post_id in already_analyzed:
+            skipped_reasons["already_done"] += 1
+            continue
+ 
+        # Engagement gate
+        high_plays  = post.plays  >= VIDEO_ANALYSIS_MIN_PLAYS
+        high_shares = post.shares >= VIDEO_ANALYSIS_MIN_SHARES
+        if not (high_plays or high_shares):
+            skipped_reasons["low_engagement"] += 1
+            continue
+ 
+        # Bot gate — recomputed here using TikTokPost fields
+        # (bot_score is already on the NormalizedPost from tiktok_ingestor,
+        #  but we recalculate from TikTokPost for the raw feed posts)
+        bot_score = _estimate_bot_score(post)
+        if bot_score >= BOT_SCORE_MAX:
+            skipped_reasons["high_bot"] += 1
+            continue
+ 
+        queue.append({
+            "post_id": post.post_id,
+            "video_url": video_url,
+            "engagement_score": post.engagement_score,
+        })
+ 
+        if len(queue) >= MAX_VIDEOS_PER_RUN:
+            break   # quota guard
+ 
+    # Sort by engagement so highest-signal videos go first
+    queue.sort(key=lambda x: x["engagement_score"], reverse=True)
+ 
+    trace = _make_trace(
+        agent="video_selector",
+        summary=f"tiktok_posts={len(tiktok_posts)} already_analyzed={len(already_analyzed)}",
+        decision=f"queued={len(queue)} videos for analysis",
+        reasoning=(
+            f"Skipped — no_url:{skipped_reasons['no_url']} "
+            f"low_engagement:{skipped_reasons['low_engagement']} "
+            f"high_bot:{skipped_reasons['high_bot']} "
+            f"already_done:{skipped_reasons['already_done']}"
+        ),
+    )
+ 
+    return {
+        "video_analysis_queue": queue,
+        "needs_video_analysis": len(queue) > 0,
+        "agent_trace": [trace],
+    }
+ 
+ 
+def _estimate_bot_score(post) -> float:
+    """Quick bot heuristic from TikTokPost fields."""
+    score = 0.0
+    followers = getattr(post, "author_followers", 0) or 0
+    plays = getattr(post, "plays", 0) or 0
+    verified = getattr(post, "author_verified", False)
+ 
+    # Suspiciously high views from tiny account
+    if followers < 50 and plays > 100_000:
+        score += 0.5
+    elif followers < 200 and plays > 500_000:
+        score += 0.3
+ 
+    if verified:
+        score = max(0.0, score - 0.2)
+ 
+    return min(score, 1.0)
+ 
+ 
+# ── Node: video_analysis ──────────────────────────────────────────────────────
+ 
+async def video_analysis_node(state: CaseState) -> dict:
+    """
+    Runs analyze_video() for each post in video_analysis_queue.
+ 
+    Calls are sequential (not parallel) to:
+      - Avoid hammering the Gemini API
+      - Stay within the free tier rate limit
+      - Give us time to stop if an early video is highly relevant
+ 
+    Results go into video_analyses (accumulated) and
+    analyzed_post_ids (accumulated, prevents re-analysis).
+ 
+    Also produces video-derived ExtractedClaims so claim_extractor_node
+    can see both text claims and video claims in the same pass.
+    """
+    queue = state.get("video_analysis_queue", [])
+    subject_description = state.get("subject_description", "")
+    case_id = state.get("case_id", "")
+ 
+    if not queue:
+        return {"agent_trace": [_make_trace(
+            "video_analysis", "empty queue", "skipped", "No videos to analyze"
+        )]}
+ 
+    if not subject_description:
+        return {"agent_trace": [_make_trace(
+            "video_analysis", "no subject_description", "skipped",
+            "subject_description must be set on CaseState at case creation"
+        )]}
+ 
+    results: list[VideoSignals] = []
+    new_analyzed_ids: list[str] = []
+    video_claims: list[ExtractedClaim] = []
+    high_relevance_count = 0
+ 
+    for item in queue:
+        post_id  = item["post_id"]
+        video_url = item["video_url"]
+ 
+        logger.info(f"[video_analysis] analyzing post_id={post_id}")
+ 
+        # Call the @tool directly
+        signals: VideoSignals = await analyze_video.ainvoke({
+            "post_id": post_id,
+            "video_url": video_url,
+            "case_id": case_id,
+            "subject_description": subject_description,
+        })
+ 
+        results.append(signals)
+        new_analyzed_ids.append(post_id)
+ 
+        if signals.processing_error:
+            logger.warning(f"[video_analysis] error post={post_id}: {signals.processing_error}")
+            continue
+ 
+        if signals.case_relevant:
+            high_relevance_count += 1
+ 
+        # Convert video signals → ExtractedClaims so claim_extractor
+        # and clustering nodes see them alongside text claims
+        for claim in signals.spoken_claims:
+            video_claims.append(ExtractedClaim(
+                claim_id=f"vid_{uuid.uuid4().hex[:12]}",
+                source_event_id=f"tiktok_{post_id}",
+                case_id=case_id,
+                type=claim.claim_type,
+                statement=claim.quote,
+                location_mentioned=None,
+                time_mentioned=None,
+                extraction_confidence=claim.confidence,
+                embedding_vector=[],
+                video_post_id=post_id,
+            ))
+ 
+        for loc in signals.location_signals:
+            if loc.confidence >= 0.5:
+                video_claims.append(ExtractedClaim(
+                    claim_id=f"vid_loc_{uuid.uuid4().hex[:10]}",
+                    source_event_id=f"tiktok_{post_id}",
+                    case_id=case_id,
+                    type="location",
+                    statement=f"{loc.location_type}: {loc.value} (from: {loc.raw_text})",
+                    location_mentioned=loc.value,
+                    time_mentioned=None,
+                    extraction_confidence=loc.confidence,
+                    embedding_vector=[],
+                    video_post_id=post_id,
+                ))
+ 
+    trace = _make_trace(
+        agent="video_analysis",
+        summary=f"queued={len(queue)}",
+        decision=(
+            f"analyzed={len(results)} "
+            f"relevant={high_relevance_count} "
+            f"errors={sum(1 for r in results if r.processing_error)} "
+            f"claims_extracted={len(video_claims)}"
+        ),
+        reasoning=(
+            f"Sequential analysis of {len(queue)} high-signal TikTok videos. "
+            f"{high_relevance_count} marked case_relevant by Gemini."
+        ),
+    )
+ 
+    return {
+        "video_analyses": results,                      # operator.add — accumulated
+        "analyzed_post_ids": new_analyzed_ids,          # operator.add — accumulated
+        "all_claims": video_claims,                     # operator.add — accumulated
+        "extracted_claims_this_run": video_claims,
+        "agent_trace": [trace],
+    }# ── Node: video_selector ──────────────────────────────────────────────────────
+ 
+async def video_selector_node(state: CaseState) -> dict:
+    """
+    Decides which TikTok posts from this run are worth video analysis.
+ 
+    Selection criteria (ALL must be true):
+      1. Has a downloadable video URL (videoUrl field from Apify)
+      2. Meets engagement threshold (plays > 5k OR shares > 50)
+      3. bot_score < 0.4
+      4. Not already analyzed in a previous run
+ 
+    Writes:
+      video_analysis_queue  → list of {post_id, video_url} to analyze
+      needs_video_analysis  → True if queue is non-empty
+    """
+    tiktok_posts = state.get("tiktok_posts", [])
+    already_analyzed = set(state.get("analyzed_post_ids", []))
+ 
+    queue = []
+    skipped_reasons: dict[str, int] = {
+        "no_url": 0, "low_engagement": 0, "high_bot": 0, "already_done": 0
+    }
+ 
+    for post in tiktok_posts:
+        # post is a TikTokPost pydantic object
+        video_url = getattr(post, "video_url", None) or getattr(post, "url", None)
+ 
+        if not video_url or "video" not in video_url.lower():
+            # Apify returns the TikTok page URL in `url` and the direct
+            # video URL in `videoUrl` — check both
+            video_url = getattr(post, "video_download_url", None)
+ 
+        if not video_url:
+            skipped_reasons["no_url"] += 1
+            continue
+ 
+        if post.post_id in already_analyzed:
+            skipped_reasons["already_done"] += 1
+            continue
+ 
+        # Engagement gate
+        high_plays  = post.plays  >= VIDEO_ANALYSIS_MIN_PLAYS
+        high_shares = post.shares >= VIDEO_ANALYSIS_MIN_SHARES
+        if not (high_plays or high_shares):
+            skipped_reasons["low_engagement"] += 1
+            continue
+ 
+        # Bot gate — recomputed here using TikTokPost fields
+        # (bot_score is already on the NormalizedPost from tiktok_ingestor,
+        #  but we recalculate from TikTokPost for the raw feed posts)
+        bot_score = _estimate_bot_score(post)
+        if bot_score >= BOT_SCORE_MAX:
+            skipped_reasons["high_bot"] += 1
+            continue
+ 
+        queue.append({
+            "post_id": post.post_id,
+            "video_url": video_url,
+            "engagement_score": post.engagement_score,
+        })
+ 
+        if len(queue) >= MAX_VIDEOS_PER_RUN:
+            break   # quota guard
+ 
+    # Sort by engagement so highest-signal videos go first
+    queue.sort(key=lambda x: x["engagement_score"], reverse=True)
+ 
+    trace = _make_trace(
+        agent="video_selector",
+        summary=f"tiktok_posts={len(tiktok_posts)} already_analyzed={len(already_analyzed)}",
+        decision=f"queued={len(queue)} videos for analysis",
+        reasoning=(
+            f"Skipped — no_url:{skipped_reasons['no_url']} "
+            f"low_engagement:{skipped_reasons['low_engagement']} "
+            f"high_bot:{skipped_reasons['high_bot']} "
+            f"already_done:{skipped_reasons['already_done']}"
+        ),
+    )
+ 
+    return {
+        "video_analysis_queue": queue,
+        "needs_video_analysis": len(queue) > 0,
+        "agent_trace": [trace],
+    }
+ 
+ 
+def _estimate_bot_score(post) -> float:
+    """Quick bot heuristic from TikTokPost fields."""
+    score = 0.0
+    followers = getattr(post, "author_followers", 0) or 0
+    plays = getattr(post, "plays", 0) or 0
+    verified = getattr(post, "author_verified", False)
+ 
+    # Suspiciously high views from tiny account
+    if followers < 50 and plays > 100_000:
+        score += 0.5
+    elif followers < 200 and plays > 500_000:
+        score += 0.3
+ 
+    if verified:
+        score = max(0.0, score - 0.2)
+ 
+    return min(score, 1.0)
+ 
+ 
+# ── Node: video_analysis ──────────────────────────────────────────────────────
+ 
+async def video_analysis_node(state: CaseState) -> dict:
+    """
+    Runs analyze_video() for each post in video_analysis_queue.
+ 
+    Calls are sequential (not parallel) to:
+      - Avoid hammering the Gemini API
+      - Stay within the free tier rate limit
+      - Give us time to stop if an early video is highly relevant
+ 
+    Results go into video_analyses (accumulated) and
+    analyzed_post_ids (accumulated, prevents re-analysis).
+ 
+    Also produces video-derived ExtractedClaims so claim_extractor_node
+    can see both text claims and video claims in the same pass.
+    """
+    queue = state.get("video_analysis_queue", [])
+    subject_description = state.get("subject_description", "")
+    case_id = state.get("case_id", "")
+ 
+    if not queue:
+        return {"agent_trace": [_make_trace(
+            "video_analysis", "empty queue", "skipped", "No videos to analyze"
+        )]}
+ 
+    if not subject_description:
+        return {"agent_trace": [_make_trace(
+            "video_analysis", "no subject_description", "skipped",
+            "subject_description must be set on CaseState at case creation"
+        )]}
+ 
+    results: list[VideoSignals] = []
+    new_analyzed_ids: list[str] = []
+    video_claims: list[ExtractedClaim] = []
+    high_relevance_count = 0
+ 
+    for item in queue:
+        post_id  = item["post_id"]
+        video_url = item["video_url"]
+ 
+        logger.info(f"[video_analysis] analyzing post_id={post_id}")
+ 
+        # Call the @tool directly
+        signals: VideoSignals = await analyze_video.ainvoke({
+            "post_id": post_id,
+            "video_url": video_url,
+            "case_id": case_id,
+            "subject_description": subject_description,
+        })
+ 
+        results.append(signals)
+        new_analyzed_ids.append(post_id)
+ 
+        if signals.processing_error:
+            logger.warning(f"[video_analysis] error post={post_id}: {signals.processing_error}")
+            continue
+ 
+        if signals.case_relevant:
+            high_relevance_count += 1
+ 
+        # Convert video signals → ExtractedClaims so claim_extractor
+        # and clustering nodes see them alongside text claims
+        for claim in signals.spoken_claims:
+            video_claims.append(ExtractedClaim(
+                claim_id=f"vid_{uuid.uuid4().hex[:12]}",
+                source_event_id=f"tiktok_{post_id}",
+                case_id=case_id,
+                type=claim.claim_type,
+                statement=claim.quote,
+                location_mentioned=None,
+                time_mentioned=None,
+                extraction_confidence=claim.confidence,
+                embedding_vector=[],
+                video_post_id=post_id,
+            ))
+ 
+        for loc in signals.location_signals:
+            if loc.confidence >= 0.5:
+                video_claims.append(ExtractedClaim(
+                    claim_id=f"vid_loc_{uuid.uuid4().hex[:10]}",
+                    source_event_id=f"tiktok_{post_id}",
+                    case_id=case_id,
+                    type="location",
+                    statement=f"{loc.location_type}: {loc.value} (from: {loc.raw_text})",
+                    location_mentioned=loc.value,
+                    time_mentioned=None,
+                    extraction_confidence=loc.confidence,
+                    embedding_vector=[],
+                    video_post_id=post_id,
+                ))
+ 
+    trace = _make_trace(
+        agent="video_analysis",
+        summary=f"queued={len(queue)}",
+        decision=(
+            f"analyzed={len(results)} "
+            f"relevant={high_relevance_count} "
+            f"errors={sum(1 for r in results if r.processing_error)} "
+            f"claims_extracted={len(video_claims)}"
+        ),
+        reasoning=(
+            f"Sequential analysis of {len(queue)} high-signal TikTok videos. "
+            f"{high_relevance_count} marked case_relevant by Gemini."
+        ),
+    )
+ 
+    return {
+        "video_analyses": results,                      # operator.add — accumulated
+        "analyzed_post_ids": new_analyzed_ids,          # operator.add — accumulated
+        "all_claims": video_claims,                     # operator.add — accumulated
+        "extracted_claims_this_run": video_claims,
+        "agent_trace": [trace],
+    }
 # ── Node: claim_extractor ─────────────────────────────────────────────────────
 
 async def claim_extractor_node(state: CaseState) -> dict:

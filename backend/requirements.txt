@@ -1,6 +1,5 @@
 asyncio
 fastapi
-functools
 httpx
 uvicorn
 pydantic

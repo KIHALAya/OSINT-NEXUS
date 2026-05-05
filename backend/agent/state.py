@@ -1,11 +1,11 @@
-
 from __future__ import annotations
 
-from typing import Annotated, Any
 import operator
+from typing import Annotated, Any
 from typing_extensions import TypedDict
 
 from tools.tiktok_search import TikTokPost, TikTokSearchResult
+from tools.video_analysis import VideoSignals
 
 
 # ── Sub-types ─────────────────────────────────────────────────────────────────
@@ -36,6 +36,7 @@ class ExtractedClaim(TypedDict):
     time_mentioned: str | None
     extraction_confidence: float
     embedding_vector: list[float]
+    video_post_id: str | None # Optional link to video analysis
 
 
 class ClusterState(TypedDict):
@@ -83,47 +84,43 @@ class CaseState(TypedDict):
     case_id: str
     run_id: str
 
-    # ── Incoming trigger (changes each run) ───────────────────────────────────
+    # ── Subject Info (Set at bootstrap) ───────────────────────────────────────
+    subject_name: str
+    subject_description: str
+    last_known_location: str | None
+    last_seen_date: str | None
+
+    # ── Incoming trigger (Optional, if run is post-driven) ─────────────────────
     incoming_post: IncomingPost | None
 
-    subject_description : str
-
     # ── Accumulated context (grows across ALL runs for this case) ─────────────
-    # operator.add means each node can append to these lists
     all_claims: Annotated[list[ExtractedClaim], operator.add]
     clusters: Annotated[list[ClusterState], operator.add]
     leads: Annotated[list[Lead], operator.add]
     agent_trace: Annotated[list[AgentStep], operator.add]
 
     # ── TikTok-specific state ─────────────────────────────────────────────────
-    # Raw posts from TikTok searches, accumulated across runs
     tiktok_posts: Annotated[list[TikTokPost], operator.add]
-
-    # Last search result (replaced each run, not accumulated)
     last_tiktok_search: TikTokSearchResult | None
+    
+    # Video analysis results (accumulated)
+    video_analyses: Annotated[list[VideoSignals], operator.add]
 
-    #video  analysis results 
-    video_analysis: Annotated[list[VideoSignals], operator.add]
-
-     # NEW: tracks which post_ids have been analyzed so we never repeat
-    # This is a set serialised as list (TypedDict doesn't support set)
+    # Tracks which post_ids have been analyzed to prevent duplicates
     analyzed_post_ids: Annotated[list[str], operator.add]
  
-    # NEW: posts the selector node queued for analysis this run
-    video_analysis_queue: list[dict]    # list of {post_id, video_url}
+    # Posts queued for analysis this specific run
+    video_analysis_queue: list[dict]
 
-    # Known viral content on TikTok for this case
-    # Updated by the misinfo filter when it detects amplification patterns
-    tiktok_viral_flags: Annotated[list[dict], operator.add]
-
-    # ── Routing signals (set each run, read by conditional edges) ─────────────
-    needs_tiktok_search: bool       # should the agent call search_tiktok?
-    needs_video_analysis : bool
-    needs_verification: list[str]   # cluster_ids above scoring threshold
+    # ── Routing signals ───────────────────────────────────────────────────────
+    needs_tiktok_search: bool
+    needs_video_analysis: bool
+    needs_verification: list[str]   # cluster_ids
     needs_human_review: bool
 
     # ── Current run results (reset each run) ──────────────────────────────────
+    tiktok_normalized_posts_this_run: list[IncomingPost]
     extracted_claims_this_run: list[ExtractedClaim]
     scores_this_run: dict[str, float]
     misinfo_flags_this_run: list[dict]
-    tiktok_viral_flags : Annotated[list[dict], operator.add]
+    tiktok_viral_flags: Annotated[list[dict], operator.add]

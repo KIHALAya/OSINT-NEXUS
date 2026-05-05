@@ -1,6 +1,6 @@
 # OSINT-NEXUS Backend - Technical Audit (May 5, 2026)
 
-This document summarizes the results of a comprehensive technical audit of the OSINT-NEXUS backend.
+This document summarizes the results of a comprehensive technical audit and subsequent architectural refactor (May 2026).
 
 ## 1. Project Summary
 OSINT-NEXUS is an investigation platform designed to track missing persons by analyzing social media signals, with a heavy current focus on TikTok ingestion and AI-driven video intelligence.
@@ -12,47 +12,30 @@ OSINT-NEXUS is an investigation platform designed to track missing persons by an
 - **Storage:** PostgreSQL (SQLAlchemy), Redis (Streams/Checkpoints), Qdrant (Vector DB)
 - **External APIs:** Apify (TikTok Scraper), Google Vision, Tavily
 
-**Status:** High-quality "leaf" components (TikTok and Video analysis tools) exist, but core infrastructure (API, DB connectivity, Service layer) is largely missing or in stub form.
+**Status:** The system has been refactored to a **Proactive Ingestion Model** where data acquisition is the mandatory first step of any investigation. Core agent bugs have been resolved, and the pipeline flow is now strictly aligned with the intended user experience.
 
-## 2. Critical Issues (Must Fix)
+## 2. Recent Architectural Improvements (Branch: feature/proactive-ingestion)
 
-### A. Agent Logic Failures
-- **Import Errors:** `graph.py` attempts to import from non-existent `agent.nodes_video`.
-- **Naming Conflicts:** `nodes.py` calls `_make_trace` but defines `_trace`. State field mismatch: `video_analysis` (state) vs `video_analyses` (nodes).
-- **Missing Imports:** `state.py` lacks the `VideoSignals` import.
+### A. Proactive Pipeline
+- **Mandatory Ingestion:** Removed conditional "Maybe-Search" logic. The agent now treats bootstrapping and initial TikTok/Web searches as the core entry point for every case.
+- **Improved State Management:** Switched to a unified `CaseState` that prioritizes user-entered subject information (Name, Location) to drive scraping.
 
-### B. Empty Core Modules
-- `api/main.py`, `db/database.py`, and `services/investigation.py` are currently empty (0 bytes), preventing application startup and data persistence.
+### B. Bug Fixes & Stability
+- **Resolved Import Hell:** Fixed circular imports between `state.py` and `nodes.py`.
+- **Naming Consistency:** Consolidated all tracing logic under `_make_trace` and aligned state field names (e.g., `video_analyses`).
+- **Type Safety:** Integrated `VideoSignals` directly into the state schema to ensure Gemini results are correctly handled.
 
-### C. Fatal Deployment Configuration
-- `Dockerfile` points to an empty `api.main:app`, causing immediate container crashes.
+### C. Refactored Nodes
+- **`bootstrap_node`**: New entry point that initializes the investigation based on user input.
+- **`tiktok_search_node`**: Now strictly follows the bootstrap to ensure the pipeline always has fresh data.
 
-## 3. Medium Issues
+## 3. Remaining Implementation Gaps (Next Sprint)
 
-### A. Stubbed Intelligence
-- `claim_extractor_node` uses a hardcoded stub instead of real LLM extraction logic.
-### B. Inefficient State Patterns
-- `analyzed_post_ids` implemented as a list instead of a set, risking duplicate processing and increased API costs.
-### C. Configuration Rigidity
-- Hardcoded engagement and bot-score thresholds in `nodes.py` should be moved to environment variables.
+1. **Database Wiring:** The models are defined, but nodes do not yet write to the DB.
+2. **Vector Pipeline:** The clustering node needs to generate embeddings and upsert to Qdrant.
+3. **Real-time API:** Implement the FastAPI stream listener to trigger the graph automatically.
+4. **LLM Intelligence:** Replace claim extraction stubs with real Gemini-based extraction logic.
 
-## 4. Minor Issues / Code Smells
-
-- **Gemini Quota Risk:** No global daily tracking for the 1,500/day free tier limit.
-- **Redundant Logic:** Duplicate bot-score heuristic calculations across nodes.
-- **Config Formatting:** Inconsistent indentation and redundant logic in `core/config.py`.
-
-## 5. Missing Components
-
-1. **Persistence Layer:** No logic to save results to PostgreSQL.
-2. **Vector Search:** Qdrant integration for claim clustering is not implemented.
-3. **Authentication:** No security layer on the API endpoints.
-4. **Real-time Updates:** WebSocket infrastructure for live investigation updates is missing.
-
-## 6. Recommended Next Steps
-
-1. **Sanity Fix:** Correct imports, naming, and state mismatches in the agent package.
-2. **Infrastructure:** Implement `db/database.py` and `api/main.py` entry points.
-3. **Intelligence:** Replace stubs in `claim_extractor_node` with real LLM calls.
-4. **Persistence:** Implement the `graph_updater_node` to sync LangGraph state with PostgreSQL.
-5. **Vector Search:** Integrate Qdrant for automated claim clustering.
+## 4. Technical Debt (Minor)
+- **Gemini Quota Tracking:** Need a persistent counter for daily API usage across all cases.
+- **Config Tuning:** Move engagement thresholds from hardcoded constants to `.env` / `Settings`.

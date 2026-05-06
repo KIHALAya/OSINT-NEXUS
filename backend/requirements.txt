@@ -6,9 +6,11 @@ pydantic
 pydantic-settings
 requests
 sqlalchemy
+asyncpg
 psycopg2-binary
 pytest
 redis
+qdrant-client
 langchain
 langchain_core
 langgraph

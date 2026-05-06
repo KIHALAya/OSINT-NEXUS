@@ -59,7 +59,7 @@ class LocationSignal(BaseModel):
 
 class SpokenClaim(BaseModel):
     quote: str
-    language: str           # ar | fr | en | darija | mixed
+    language: str           # en | es | mixed
     claim_type: str         # sighting | rumour | denial | direction | other
     confidence: float = 0.0
 
@@ -93,8 +93,8 @@ class VideoAnalysisInput(BaseModel):
         description=(
             "Full description of the missing person: name, age, build, "
             "hair, last known clothing, last known location + date. "
-            "E.g. 'Amira Benali, 14yo female, dark hair, blue jacket and jeans, "
-            "last seen Morocco Mall Casablanca Jan 15 2024'"
+            "E.g. 'John Doe, 14yo male, brown hair, blue jacket and jeans, "
+            "last seen Chicago Union Station June 20th 2024'"
         )
     )
 
@@ -114,7 +114,7 @@ Extract ALL of the following:
 2. LOCATIONS — street signs, landmarks, spoken place names, map overlays,
    recognizable buildings, neighborhood sounds or characteristics
 3. SPOKEN WORDS — every relevant spoken statement in any language
-   (Arabic MSA, Darija, French, or mixed). Transcribe sighting claims,
+   (primarily English, Spanish, or mixed). Transcribe sighting claims,
    directions, identifications, denials.
 4. SUSPICIOUS ELEMENTS — recycled footage, staged content, contradictions,
    inconsistent backgrounds, signs of coordinated inauthentic behavior
@@ -144,7 +144,7 @@ Return ONLY valid JSON. No markdown fences, no explanation outside the JSON:
   "spoken_claims": [
     {{
       "quote": "verbatim or close transcription",
-      "language": "ar|fr|en|darija|mixed",
+      "language": "en|es|mixed",
       "claim_type": "sighting|rumour|denial|direction|other",
       "confidence": 0.0
     }}

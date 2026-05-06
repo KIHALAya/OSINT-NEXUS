@@ -44,7 +44,7 @@ class TikTokSearchInput(BaseModel):
         description=(
             "Search terms in any language. Use the subject's name, location, "
             "and descriptive phrases. Arabic/French/Darija all work. "
-            "Example: ['amira benali', 'morocco mall missing', 'مول المغرب']"
+            "Example: ['john doe missing', 'chicago missing person', 'missing silver alert']"
         )
     )
     max_results: int = Field(

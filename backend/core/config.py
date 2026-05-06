@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     )
 
     # Database & Infrastructure
-    POSTGRES_URL: str = "postgresql://nexus:nexus@localhost:5432/nexus"
+    DATABASE_URL: str = "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
     QDRANT_URL: str = "http://localhost:6333"
     REDIS_URL: str = "redis://localhost:6379"
     
@@ -30,9 +30,13 @@ class Settings(BaseSettings):
     GOOGLE_VISION_API_KEY: Optional[str] = None
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
 
+    # Local LLM (Gemma 4 via Ollama / vLLM)
+    LOCAL_LLM_URL: str = "http://localhost:11434/v1"
+    LOCAL_LLM_MODEL: str = "gemma2"  # or gemma4 when released/installed
+
     # TikTok / Apify Config
     APIFY_ACTOR_TIKTOK: str = "clockworks/tiktok-scraper"
-    #APIFY_TIMEOUT_SECONDS: Annotated[int, BeforeValidator(empty_str_to_none)] = 300
+    APIFY_TIMEOUT_SECONDS: Annotated[int, BeforeValidator(empty_str_to_none)] = 300
     
     # Ingestion Constraints
     VIDEO_MIN_PLAYS: Annotated[int, BeforeValidator(empty_str_to_none)] = 5000

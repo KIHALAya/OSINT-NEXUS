@@ -10,6 +10,56 @@ export default function NewCase({ navigate }) {
 
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleLaunch = async () => {
+    setIsLaunching(true);
+    setError(null);
+
+    try {
+      // 1. Create the case
+      const createResp = await fetch("http://localhost:8000/api/cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_name: form.subject,
+          subject_description: form.description,
+          age: parseInt(form.age) || null,
+          location: form.location,
+          last_seen_date: form.lastSeen,
+          priority: form.priority,
+        }),
+      });
+
+      if (!createResp.ok) throw new Error("Failed to create case");
+      const { case_id } = await createResp.json();
+
+      // 2. Trigger the investigation run
+      const runResp = await fetch(`http://localhost:8000/api/cases/${case_id}/run`, {
+        method: "POST",
+      });
+
+      if (!runResp.ok) throw new Error("Failed to start investigation");
+
+      // 3. Navigate to Case View
+      navigate("case", { 
+        id: case_id, 
+        subject: form.subject, 
+        age: form.age, 
+        location: form.location, 
+        lastSeen: form.lastSeen,
+        priority: form.priority,
+        status: "active" 
+      });
+    } catch (err) {
+      console.error("Launch error:", err);
+      setError(err.message);
+    } finally {
+      setIsLaunching(false);
+    }
+  };
+
   return (
     <div className="newcase-page">
       <TopNav navigate={navigate} currentPage="new-case" />
@@ -19,6 +69,8 @@ export default function NewCase({ navigate }) {
             <span className="panel-title">NEW INVESTIGATION CASE</span>
             <span className="mono" style={{ fontSize: 10, color: "var(--text-dim)" }}>STEP {step}/3</span>
           </div>
+
+          {error && <div className="error-banner" style={{ padding: 10, background: "rgba(255,0,0,0.1)", color: "red", fontSize: 12, marginBottom: 15, border: "1px solid red" }}>Error: {error}</div>}
 
           <div className="newcase-steps">
             {[1,2,3].map(s => (
@@ -114,8 +166,8 @@ export default function NewCase({ navigate }) {
             <div style={{ flex: 1 }} />
             {step < 3
               ? <button className="btn btn-primary" onClick={() => setStep(s => s + 1)}>NEXT →</button>
-              : <button className="btn btn-primary" onClick={() => navigate("case", { ...form, id: "CASE-2024-0848", status: "active" })}>
-                  LAUNCH INVESTIGATION ⚡
+              : <button className="btn btn-primary" disabled={isLaunching} onClick={handleLaunch}>
+                  {isLaunching ? "LAUNCHING..." : "LAUNCH INVESTIGATION ⚡"}
                 </button>
             }
           </div>

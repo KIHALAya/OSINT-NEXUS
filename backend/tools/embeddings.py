@@ -19,6 +19,7 @@ Qdrant collection per case:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -43,7 +44,7 @@ GEMINI_EMBED_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 # ── Embedding generation ──────────────────────────────────────────────────────
 
-async def embed_text(text: str) -> list[float]:
+async def embed_text(text: str, client: httpx.AsyncClient | None = None) -> list[float]:
     """
     Generate a 768-dim embedding for `text` using Google text-embedding-004.
     Returns a list of 768 floats.
@@ -52,26 +53,32 @@ async def embed_text(text: str) -> list[float]:
     any preprocessing — critical for multilingual claim clustering.
     """
     settings = get_settings()
-    api_key = settings.gemini_api_key   # same key as video analysis
+    api_key = settings.gemini_api_key
 
     if not api_key:
         raise ValueError("GEMINI_API_KEY required for embeddings")
 
-    # Truncate — model max is 2048 tokens, claims are short so this rarely triggers
     text = text[:2000].strip()
     if not text:
         return [0.0] * EMBEDDING_DIM
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            f"{GEMINI_EMBED_BASE}/models/text-embedding-004:embedContent",
-            params={"key": api_key},
-            json={
-                "model": "models/text-embedding-004",
-                "content": {"parts": [{"text": text}]},
-                "taskType": "SEMANTIC_SIMILARITY",
-            },
-        )
+    if client is None:
+        async with httpx.AsyncClient(timeout=15) as c:
+            return await _embed_call(text, c, api_key)
+    else:
+        return await _embed_call(text, client, api_key)
+
+
+async def _embed_call(text: str, client: httpx.AsyncClient, api_key: str) -> list[float]:
+    resp = await client.post(
+        f"{GEMINI_EMBED_BASE}/models/text-embedding-004:embedContent",
+        params={"key": api_key},
+        json={
+            "model": "models/text-embedding-004",
+            "content": {"parts": [{"text": text}]},
+            "taskType": "SEMANTIC_SIMILARITY",
+        },
+    )
 
     if resp.status_code == 429:
         raise RuntimeError("Embedding API rate limit — wait 1 minute")
@@ -87,18 +94,24 @@ async def embed_text(text: str) -> list[float]:
 
 async def embed_texts_batch(texts: list[str]) -> list[list[float]]:
     """
-    Embed multiple texts sequentially.
-    Sequential (not asyncio.gather) to respect rate limits.
+    Embed multiple texts in parallel with a semaphore to respect rate limits.
     """
-    results = []
-    for text in texts:
-        try:
-            vec = await embed_text(text)
-        except Exception as e:
-            logger.warning(f"Embedding failed for text '{text[:40]}': {e} — using zero vector")
-            vec = [0.0] * EMBEDDING_DIM
-        results.append(vec)
-    return results
+    if not texts:
+        return []
+
+    sem = asyncio.BoundedSemaphore(20)
+
+    async def _safe_embed(text: str, client: httpx.AsyncClient) -> list[float]:
+        async with sem:
+            try:
+                return await embed_text(text, client=client)
+            except Exception as e:
+                logger.warning(f"Embedding failed for text '{text[:40]}': {e} — using zero vector")
+                return [0.0] * EMBEDDING_DIM
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        tasks = [_safe_embed(t, client) for t in texts]
+        return list(await asyncio.gather(*tasks))
 
 
 # ── Qdrant operations ─────────────────────────────────────────────────────────

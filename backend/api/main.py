@@ -46,18 +46,17 @@ async def lifespan(app: FastAPI):
     logger.info("Database tables ready")
 
     # Start Redis stream listener in background
-    # Disabled for MVP: Investigation is triggered by New Case form
-    # listener_task = asyncio.create_task(_stream_listener())
-    # logger.info("Redis stream listener started")
+    listener_task = asyncio.create_task(_stream_listener())
+    logger.info("Redis stream listener started")
 
     yield
 
     # Shutdown
-    # listener_task.cancel()
-    # try:
-    #     await listener_task
-    # except asyncio.CancelledError:
-    #     pass
+    listener_task.cancel()
+    try:
+        await listener_task
+    except asyncio.CancelledError:
+        pass
     logger.info("API stopped")
 
 
@@ -101,7 +100,7 @@ async def _stream_listener():
 
     logger.info(f"Stream listener ready: stream={stream} group={group} consumer={consumer}")
 
-    graph = get_graph()
+    graph = await get_graph()
 
     while True:
         try:
@@ -270,7 +269,7 @@ async def run_investigation(
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
 
-    graph = get_graph()
+    graph = await get_graph()
 
     # Build initial state from case record
     initial_state: dict = {
@@ -306,6 +305,36 @@ async def run_investigation(
     }
 
 
+@app.post("/api/cases/{case_id}/resume")
+async def resume_investigation(
+    case_id: str,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """
+    Resume an investigation that was paused for human review.
+    """
+    graph = await get_graph()
+    config = {"configurable": {"thread_id": case_id}}
+
+    # Check state
+    snapshot = await graph.aget_state(config)
+    if not snapshot.next:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Case {case_id} is not currently paused or does not exist."
+        )
+
+    background_tasks.add_task(
+        _resume_graph_blocking, graph, case_id
+    )
+
+    return {
+        "case_id": case_id,
+        "status": "resuming",
+        "message": "Investigation resumed.",
+    }
+
+
 async def _run_graph_blocking(graph, initial_state: dict, case_id: str):
     config = {"configurable": {"thread_id": case_id}}
     try:
@@ -313,6 +342,16 @@ async def _run_graph_blocking(graph, initial_state: dict, case_id: str):
         logger.info(f"Investigation complete: case={case_id}")
     except Exception as e:
         logger.error(f"Investigation failed case={case_id}: {e}", exc_info=True)
+
+
+async def _resume_graph_blocking(graph, case_id: str):
+    config = {"configurable": {"thread_id": case_id}}
+    try:
+        # Passing None to ainvoke resumes from the last checkpoint
+        await graph.ainvoke(None, config=config)
+        logger.info(f"Investigation resumed and complete: case={case_id}")
+    except Exception as e:
+        logger.error(f"Investigation resume failed case={case_id}: {e}", exc_info=True)
 
 
 @app.get("/api/cases/{case_id}/leads")
@@ -379,7 +418,7 @@ async def get_clusters(case_id: str) -> list[dict]:
     Return all clusters for a case.
     Reads from LangGraph checkpointer state.
     """
-    graph = get_graph()
+    graph = await get_graph()
     config = {"configurable": {"thread_id": case_id}}
     try:
         snapshot = await graph.aget_state(config)
@@ -395,7 +434,7 @@ async def get_trace(case_id: str) -> dict:
     Return the agent trace from the last graph run.
     Reads from LangGraph checkpointer state.
     """
-    graph = get_graph()
+    graph = await get_graph()
     config = {"configurable": {"thread_id": case_id}}
     try:
         snapshot = await graph.aget_state(config)

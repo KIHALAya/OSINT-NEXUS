@@ -30,9 +30,16 @@ class Settings(BaseSettings):
     GOOGLE_VISION_API_KEY: Optional[str] = None
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
 
-    # Local LLM (Gemma 4 via Ollama / vLLM)
+    # Local/Hosted LLM (Gemma 4)
+    LLM_PROVIDER: str = "ollama"  # "ollama", "groq", "google", or "openrouter"
+    LLM_API_KEY: Optional[str] = None
     LOCAL_LLM_URL: str = "http://localhost:11434/v1"
-    LOCAL_LLM_MODEL: str = "gemma2"  # or gemma4 when released/installed
+    LOCAL_LLM_MODEL: str = "gemma2" 
+    
+    # Hosted Gemma Models
+    GROQ_MODEL: str = "gemma2-9b-it"
+    GOOGLE_GEMMA_MODEL: str = "models/gemma-2-9b-it" 
+    OPENROUTER_MODEL: str = "google/gemma-2-9b-it" # Update with specific gemma4 slug when available
 
     # TikTok / Apify Config
     APIFY_ACTOR_TIKTOK: str = "clockworks/tiktok-scraper"

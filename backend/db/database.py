@@ -31,7 +31,7 @@ class Base(DeclarativeBase):
 def _make_engine():
     settings = get_settings()
     return create_async_engine(
-        settings.database_url,
+        settings.DATABASE_URL,
         echo=False,
         pool_size=10,
         max_overflow=20,

@@ -30,6 +30,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from agent.state import (
     AgentStep, CaseState, ClusterState, ExtractedClaim,
@@ -671,44 +672,105 @@ def _suggest_action(cluster: ClusterState) -> str:
 async def graph_updater_node(state: CaseState) -> dict:
     """
     Persists results and prunes transient state to prevent bloat.
+    Uses batch insertion (upsert) for performance.
     """
     case_id = state["case_id"]
     posts = state.get("current_posts", [])
     claims = state.get("current_claims", [])
     leads = state.get("current_leads", [])
 
-    posts_written = 0
-    claims_written = 0
-    leads_written = 0
-
     try:
         async with get_db_ctx() as db:
-            for post in posts:
-                if not await db.get(RawPost, post["event_id"]):
-                    db.add(RawPost(id=post["event_id"], case_id=case_id, source=post["source"], post_id=post["post_id"], normalized_text=post["normalized_text"], detected_language=post["detected_language"], bot_score=post["bot_score"], is_duplicate=post["is_duplicate"], engagement_score=post["engagement_score"], author_id=post["author_id"], author_name=post.get("author_name", ""), author_followers=post.get("author_followers", 0), author_verified=post.get("author_verified", False), likes=post.get("likes", 0), shares=post.get("shares", 0), plays=post.get("plays", 0), posted_at=post.get("posted_at"), video_url=post.get("video_url"), thumbnail_url=post.get("thumbnail_url"), hashtags=post.get("hashtags", [])))
-                    posts_written += 1
+            # 1. Batch insert Posts
+            if posts:
+                post_values = []
+                for p in posts:
+                    post_values.append({
+                        "id": p["event_id"],
+                        "case_id": case_id,
+                        "source": p["source"],
+                        "post_id": p["post_id"],
+                        "normalized_text": p["normalized_text"],
+                        "detected_language": p.get("detected_language", "unknown"),
+                        "bot_score": p.get("bot_score", 0.0),
+                        "is_duplicate": p.get("is_duplicate", False),
+                        "engagement_score": p.get("engagement_score", 0.0),
+                        "author_id": p.get("author_id"),
+                        "author_name": p.get("author_name", ""),
+                        "author_followers": p.get("author_followers", 0),
+                        "author_verified": p.get("author_verified", False),
+                        "likes": p.get("likes", 0),
+                        "shares": p.get("shares", 0),
+                        "plays": p.get("plays", 0),
+                        "posted_at": p.get("posted_at"),
+                        "video_url": p.get("video_url"),
+                        "thumbnail_url": p.get("thumbnail_url"),
+                        "hashtags": p.get("hashtags", []),
+                    })
+                stmt = insert(RawPost).values(post_values)
+                stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+                await db.execute(stmt)
 
-            for claim in claims:
-                if not await db.get(ExtractedClaimModel, claim["claim_id"]):
-                    db.add(ExtractedClaimModel(id=claim["claim_id"], case_id=case_id, source_post_id=claim["source_event_id"], claim_type=claim["claim_type"], statement=claim["statement"], location_mentioned=claim.get("location_mentioned"), time_mentioned=claim.get("time_mentioned"), extraction_confidence=claim["extraction_confidence"], language=claim.get("language", "unknown"), qdrant_point_id=claim.get("qdrant_point_id"), from_video=claim.get("from_video", False), video_post_id=claim.get("video_post_id")))
-                    claims_written += 1
+            # 2. Batch insert Claims
+            if claims:
+                claim_values = []
+                for c in claims:
+                    claim_values.append({
+                        "id": c["claim_id"],
+                        "case_id": case_id,
+                        "source_post_id": c["source_event_id"],
+                        "claim_type": c["claim_type"],
+                        "statement": c["statement"],
+                        "location_mentioned": c.get("location_mentioned"),
+                        "time_mentioned": c.get("time_mentioned"),
+                        "extraction_confidence": c.get("extraction_confidence", 0.0),
+                        "language": c.get("language", "unknown"),
+                        "qdrant_point_id": c.get("qdrant_point_id"),
+                        "from_video": c.get("from_video", False),
+                        "video_post_id": c.get("video_post_id"),
+                    })
+                stmt = insert(ExtractedClaimModel).values(claim_values)
+                stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+                await db.execute(stmt)
 
-            for lead in leads:
-                if not await db.get(Lead, lead["lead_id"]):
-                    db.add(Lead(id=lead["lead_id"], case_id=case_id, cluster_id=lead["cluster_id"], title=lead["title"], confidence=lead["confidence"], crowd_score=lead["crowd_score"], final_score=lead["final_score"], claim_count=lead["claim_count"], unique_sources=lead["unique_sources"], evidence=lead["evidence"], action_required=lead["action_required"], priority=lead["priority"]))
-                    leads_written += 1
+            # 3. Batch insert Leads
+            if leads:
+                lead_values = []
+                for l in leads:
+                    lead_values.append({
+                        "id": l["lead_id"],
+                        "case_id": case_id,
+                        "cluster_id": l["cluster_id"],
+                        "title": l["title"],
+                        "confidence": l["confidence"],
+                        "crowd_score": l.get("crowd_score", 0.0),
+                        "final_score": l.get("final_score", 0.0),
+                        "claim_count": l.get("claim_count", 0),
+                        "unique_sources": l.get("unique_sources", 0),
+                        "evidence": l.get("evidence", []),
+                        "action_required": l.get("action_required"),
+                        "priority": l.get("priority", "medium"),
+                    })
+                stmt = insert(Lead).values(lead_values)
+                stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+                await db.execute(stmt)
 
             await db.commit()
 
-        # Prune state: return empty lists for transient "this run" keys
+        # Prune state
         return {
             "current_posts": [],
             "current_claims": [],
             "current_leads": [],
             "video_analyses_this_run": [],
-            "agent_trace": [_make_trace("graph_updater", f"p={posts_written} c={claims_written} l={leads_written}", "State pruned", "Transient lists cleared to prevent LangGraph bloat")]
+            "agent_trace": [_make_trace(
+                "graph_updater", 
+                f"p={len(posts)} c={len(claims)} l={len(leads)}", 
+                "Batch persist successful", 
+                "Transient lists cleared"
+            )]
         }
 
     except Exception as e:
-        logger.error(f"DB write failed: {e}")
-        return {"agent_trace": [_make_trace("graph_updater", "error", str(e)[:50], "")]}
+        logger.error(f"DB batch write failed: {e}", exc_info=True)
+        return {"agent_trace": [_make_trace("graph_updater", "error", str(e)[:50], "Batch persist failed")]}

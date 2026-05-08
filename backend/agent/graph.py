@@ -14,8 +14,11 @@ Proactive flow (per architecture doc):
 import logging
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
 
 from agent.state import CaseState
+from core.config import settings
 from agent.nodes import (
     bootstrap_node,
     tiktok_search_node,
@@ -121,9 +124,22 @@ async def _human_review_node(state: CaseState) -> dict:
 
 # Module-level singleton for import by api/
 _graph = None
+_pool = None
 
-def get_graph():
-    global _graph
+async def get_graph():
+    global _graph, _pool
     if _graph is None:
-        _graph = build_graph()
+        # Check if we should use Postgres persistence
+        if "postgresql" in settings.DATABASE_URL:
+            # langgraph-checkpoint-postgres uses psycopg DSN format.
+            # Convert SQLAlchemy asyncpg URL to standard postgres DSN if necessary.
+            dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+            
+            _pool = AsyncConnectionPool(conninfo=dsn, max_size=20)
+            checkpointer = AsyncPostgresSaver(_pool)
+            # IMPORTANT: We must call setup() once to create tables if they don't exist.
+            await checkpointer.setup()
+            _graph = build_graph(checkpointer=checkpointer)
+        else:
+            _graph = build_graph()
     return _graph

@@ -85,6 +85,29 @@ export default function CaseView({ navigate, caseData }) {
     ]
   };
 
+  const handleClose = async () => {
+    if (!window.confirm("Are you sure you want to close this case?")) return;
+    try {
+      const resp = await fetch(`${API_BASE}/api/cases/${caseId}/status?status=closed`, { method: "PATCH" });
+      if (resp.ok) navigate("dashboard");
+    } catch (err) { alert("Failed to close case"); }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm("PERMANENTLY DELETE this case and all its data? This cannot be undone.")) return;
+    try {
+      const resp = await fetch(`${API_BASE}/api/cases/${caseId}`, { method: "DELETE" });
+      if (resp.ok) navigate("dashboard");
+    } catch (err) { alert("Failed to delete case"); }
+  };
+
+  const handleRelaunch = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/cases/${caseId}/run`, { method: "POST" });
+      if (resp.ok) alert("Investigation relaunched!");
+    } catch (err) { alert("Failed to relaunch investigation"); }
+  };
+
   return (
     <div className="case-view">
       <TopNav navigate={navigate} currentPage="case" caseData={cas} />
@@ -108,6 +131,12 @@ export default function CaseView({ navigate, caseData }) {
                 <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>Last seen {cas.lastSeen}</span>
               </div>
             </div>
+          </div>
+
+          <div className="case-actions" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button className="btn btn-secondary btn-sm" onClick={handleRelaunch} title="Relaunch Investigation">RELAUNCH ⚡</button>
+            <button className="btn btn-secondary btn-sm" onClick={handleClose}>CLOSE CASE</button>
+            <button className="btn btn-sm" onClick={handleDelete} style={{ background: "rgba(255,0,0,0.1)", color: "#ff4444", border: "1px solid rgba(255,0,0,0.2)" }}>DELETE</button>
           </div>
 
           <div className="case-quick-stats">

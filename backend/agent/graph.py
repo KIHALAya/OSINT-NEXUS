@@ -16,6 +16,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
+from psycopg import AsyncConnection
 
 from agent.state import CaseState
 from core.config import settings
@@ -126,6 +127,20 @@ async def _human_review_node(state: CaseState) -> dict:
 _graph = None
 _pool = None
 
+async def setup_checkpointer():
+    """
+    Called once at application startup.
+    Ensures Postgres tables/indexes for LangGraph exist.
+    """
+    if "postgresql" in settings.DATABASE_URL:
+        dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+        # IMPORTANT: setup() must run on a connection with autocommit=True
+        # because it uses CREATE INDEX CONCURRENTLY which cannot run in a transaction.
+        async with await AsyncConnection.connect(dsn, autocommit=True) as conn:
+            checkpointer = AsyncPostgresSaver(conn)
+            await checkpointer.setup()
+            logger.info("LangGraph Postgres checkpointer setup complete")
+
 async def get_graph():
     global _graph, _pool
     if _graph is None:
@@ -134,11 +149,10 @@ async def get_graph():
             # langgraph-checkpoint-postgres uses psycopg DSN format.
             # Convert SQLAlchemy asyncpg URL to standard postgres DSN if necessary.
             dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
-            
+
             _pool = AsyncConnectionPool(conninfo=dsn, max_size=20)
             checkpointer = AsyncPostgresSaver(_pool)
-            # IMPORTANT: We must call setup() once to create tables if they don't exist.
-            await checkpointer.setup()
+            # Setup is now handled in setup_checkpointer() during startup
             _graph = build_graph(checkpointer=checkpointer)
         else:
             _graph = build_graph()

@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.graph import build_graph, get_graph
+from agent.graph import build_graph, get_graph, setup_checkpointer
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -50,6 +50,9 @@ async def lifespan(app: FastAPI):
     # Create tables
     await create_tables()
     logger.info("Database tables ready")
+
+    # Setup LangGraph checkpointer
+    await setup_checkpointer()
 
     # Start Redis stream listener in background
     listener_task = asyncio.create_task(_stream_listener())
@@ -91,7 +94,7 @@ async def _stream_listener():
     don't process the same message twice.
     """
     redis_client = await aioredis.from_url(
-        settings.redis_url, encoding="utf-8", decode_responses=True
+        settings.REDIS_URL, encoding="utf-8", decode_responses=True
     )
     stream = settings.stream_normalized_posts
     group = "intelligence-group"

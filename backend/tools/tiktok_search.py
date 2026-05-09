@@ -234,7 +234,7 @@ async def search_tiktok(
             case_id=case_id,
             posts=posts,
             total_found=len(posts),
-            apify_actor_used=settings.apify_actor_tiktok,
+            apify_actor_used=settings.APIFY_ACTOR_TIKTOK,
         )
  
     except ApifyError as e:
@@ -244,7 +244,7 @@ async def search_tiktok(
             case_id=case_id,
             posts=[],
             total_found=0,
-            apify_actor_used=settings.apify_actor_tiktok,
+            apify_actor_used=settings.APIFY_ACTOR_TIKTOK,
             error=str(e),
         )
  

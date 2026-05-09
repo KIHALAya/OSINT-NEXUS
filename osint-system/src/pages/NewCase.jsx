@@ -8,13 +8,25 @@ export default function NewCase({ navigate }) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     subject: "", age: "", location: "", lastSeen: "", description: "", priority: "high",
-    images: [], documents: []
+    images: [], documents: [],
+    monitoring: {
+      "Twitter/X": true, "Reddit": true, "TikTok": true, "Facebook": true, "Forums/Boards": true
+    },
+    aiOptions: {
+      "Enable Claim Extraction": true, "Enable Misinfo Detection": true, "Enable Bot Detection": true, "Enable Image Matching": true
+    }
   });
 
   const imageInputRef = useRef(null);
   const docInputRef = useRef(null);
 
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const toggleConfig = (section, key) => {
+    setForm(p => ({
+      ...p,
+      [section]: { ...p[section], [key]: !p[section][key] }
+    }));
+  };
 
   const [isLaunching, setIsLaunching] = useState(false);
   const [error, setError] = useState(null);
@@ -214,19 +226,19 @@ export default function NewCase({ navigate }) {
               <div className="form-step animate-in">
                 <div className="config-section">
                   <div className="config-title mono">COMMUNITY MONITORING TARGETS</div>
-                  {["Twitter/X", "Reddit", "TikTok", "Facebook", "Forums/Boards"].map((p, i) => (
-                    <div key={i} className="config-toggle">
-                      <span style={{ fontSize: 13 }}>{p}</span>
-                      <div className="toggle active"></div>
+                  {Object.keys(form.monitoring).map((p, i) => (
+                    <div key={i} className="config-toggle" onClick={() => toggleConfig("monitoring", p)} style={{ cursor: "pointer" }}>
+                      <span style={{ fontSize: 13, color: form.monitoring[p] ? "var(--text)" : "var(--text-dim)" }}>{p}</span>
+                      <div className={`toggle ${form.monitoring[p] ? "active" : ""}`}></div>
                     </div>
                   ))}
                 </div>
                 <div className="config-section">
                   <div className="config-title mono">AI PROCESSING OPTIONS</div>
-                  {["Enable Claim Extraction", "Enable Misinfo Detection", "Enable Bot Detection", "Enable Image Matching"].map((o, i) => (
-                    <div key={i} className="config-toggle">
-                      <span style={{ fontSize: 13 }}>{o}</span>
-                      <div className="toggle active"></div>
+                  {Object.keys(form.aiOptions).map((o, i) => (
+                    <div key={i} className="config-toggle" onClick={() => toggleConfig("aiOptions", o)} style={{ cursor: "pointer" }}>
+                      <span style={{ fontSize: 13, color: form.aiOptions[o] ? "var(--text)" : "var(--text-dim)" }}>{o}</span>
+                      <div className={`toggle ${form.aiOptions[o] ? "active" : ""}`}></div>
                     </div>
                   ))}
                 </div>

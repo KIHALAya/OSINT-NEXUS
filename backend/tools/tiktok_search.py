@@ -91,9 +91,9 @@ class TikTokScraper:
             "hashtags": keywords,
             "keywords": keywords,
  
-            # Limit — actor respects this per search term, so total
-            # results may be up to len(keywords) * resultsLimit
-            "resultsLimit": max(1, max_results // max(len(keywords), 1)),
+            # Limit — total results to fetch. The actor will distribute 
+            # this across the keywords/hashtags provided.
+            "resultsLimit": max_results,
  
             # Use Apify residential proxies — critical for TikTok
             "proxyConfiguration": {

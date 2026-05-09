@@ -144,7 +144,7 @@ async def tiktok_search_node(state: CaseState) -> dict:
     result = await search_tiktok.ainvoke({
         "case_id": case_id,
         "keywords": keywords,
-        "max_results": 50,
+        "max_results": 100,
     })
 
     trace = _make_trace(
@@ -208,6 +208,9 @@ async def tiktok_ingestor_node(state: CaseState) -> dict:
             hashtags=p.hashtags,
             media=[],
         ))
+
+    # Sort by engagement score descending to prioritize high-signal content
+    posts.sort(key=lambda x: x["engagement_score"], reverse=True)
 
     trace = _make_trace(
         agent="tiktok_ingestor",

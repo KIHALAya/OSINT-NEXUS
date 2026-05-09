@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import TopNav from "../components/TopNav";
 import "./Dashboard.css";
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 const priorityConfig = {
   critical: { label: "CRITICAL", class: "tag-red" },
   high: { label: "HIGH", class: "tag-amber" },
@@ -22,7 +24,7 @@ export default function Dashboard({ navigate }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/cases")
+    fetch(`${API_BASE}/api/cases`)
       .then(r => r.json())
       .then(data => {
         setCases(data);

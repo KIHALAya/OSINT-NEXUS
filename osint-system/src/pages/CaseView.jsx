@@ -8,6 +8,8 @@ import CommunityIntelligence from "../components/CommunityIntelligence";
 import { mockCase, mockStats } from "../data/mockData";
 import "./CaseView.css";
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 const TABS = [
   { id: "clusters", label: "CLAIM CLUSTERS", icon: "⬡" },
   { id: "leads", label: "LEADS", icon: "⚡" },
@@ -35,10 +37,10 @@ export default function CaseView({ navigate, caseData }) {
       setLoading(true);
       try {
         const [leadsResp, claimsResp, postsResp, clustersResp] = await Promise.all([
-          fetch(`http://localhost:8000/api/cases/${caseId}/leads`),
-          fetch(`http://localhost:8000/api/cases/${caseId}/claims`),
-          fetch(`http://localhost:8000/api/cases/${caseId}/posts`),
-          fetch(`http://localhost:8000/api/cases/${caseId}/clusters`)
+          fetch(`${API_BASE}/api/cases/${caseId}/leads`),
+          fetch(`${API_BASE}/api/cases/${caseId}/claims`),
+          fetch(`${API_BASE}/api/cases/${caseId}/posts`),
+          fetch(`${API_BASE}/api/cases/${caseId}/clusters`)
         ]);
 
         if (!leadsResp.ok || !claimsResp.ok || !postsResp.ok || !clustersResp.ok) {

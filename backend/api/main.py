@@ -13,20 +13,26 @@ This is Gap #3 from the architecture doc:
 """
 
 import asyncio
+import datetime
 import json
 import logging
+import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
 import redis.asyncio as aioredis
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.graph import build_graph, get_graph
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 from agent.state import CaseState
 from core.config import get_settings
 from db.database import create_tables, get_db
@@ -250,6 +256,30 @@ async def create_case(
 
     logger.info(f"Case created: {case_id} subject={req.subject_name}")
     return {"case_id": case_id, "status": "created"}
+
+
+@app.post("/api/cases/{case_id}/upload")
+async def upload_files(
+    case_id: str,
+    files: list[UploadFile] = File(...),
+):
+    """
+    Upload subject images or documents for a case.
+    Stored in uploads/{case_id}/
+    """
+    case_path = os.path.join(UPLOAD_DIR, case_id)
+    os.makedirs(case_path, exist_ok=True)
+
+    saved_files = []
+    for file in files:
+        file_path = os.path.join(case_path, file.filename)
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        saved_files.append(file.filename)
+
+    logger.info(f"Uploaded {len(saved_files)} files for case {case_id}")
+    return {"case_id": case_id, "files": saved_files}
 
 
 @app.post("/api/cases/{case_id}/run")

@@ -34,12 +34,12 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "ollama"  # "ollama", "groq", "google", or "openrouter"
     LLM_API_KEY: Optional[str] = None
     LOCAL_LLM_URL: str = "http://localhost:11434/v1"
-    LOCAL_LLM_MODEL: str = "gemma2" 
+    LOCAL_LLM_MODEL: str = "gemma4" 
     
     # Hosted Gemma Models
-    GROQ_MODEL: str = "gemma2-9b-it"
-    GOOGLE_GEMMA_MODEL: str = "models/gemma-2-9b-it" 
-    OPENROUTER_MODEL: str = "google/gemma-2-9b-it" # Update with specific gemma4 slug when available
+    GROQ_MODEL: str = "gemma-4-31b-it"
+    GOOGLE_GEMMA_MODEL: str = "models/gemma-4-31b-it" 
+    OPENROUTER_MODEL: str = "google/gemma-4-31b-it" # Update with specific gemma4 slug when available
 
     # TikTok / Apify Config
     APIFY_ACTOR_TIKTOK: str = "clockworks/tiktok-scraper"

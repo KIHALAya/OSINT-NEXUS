@@ -45,40 +45,26 @@ class ApifyClient:
         async with httpx.AsyncClient(timeout = timeout + 10) as client:
             try:
                 response = await client.post(url, params=params, json=run_input)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+                if status_code == 400:
+                    raise ApifyError(f"Invalid input for actor {actor_id}: {e.response.text}", status_code=400)
+                if status_code == 401:
+                    raise ApifyError("Apify token invalid or expired", status_code=401)
+                if status_code == 404:
+                    raise ApifyError(f"Actor not found: {actor_id}. Check the actor ID.", status_code=404)
+                if status_code == 402:
+                    raise ApifyError("Apify account usage limit reached. Upgrade plan or wait.", status_code=402)
+                raise ApifyError(f"Apify returned {status_code}: {e.response.text[:200]}", status_code=status_code)
             except httpx.TimeoutException:
-                raise ApifyError(
-                    f"Apify actor {actor_id} timed out after {timeout}s"
-                )
+                raise ApifyError(f"Apify actor {actor_id} timed out after {timeout}s")
             except httpx.RequestError as e:
                 raise ApifyError(f"Apify request failed : {e}")
             
-        if response.status_code == 200:
-            items = response.json()
-            logger.info(f"Apify run complete actor={actor_id} items={len(items)}")
-            return items if isinstance(items, list) else []
-        
-        if response.status_code == 400:
-            raise ApifyError(
-                f"Invalid input for actor {actor_id}: {response.text}",
-                status_code=400
-            )
-        if response.status_code == 401:
-            raise ApifyError("Apify token invalid or expired", status_code=401)
-        if response.status_code == 404:
-            raise ApifyError(
-                f"Actor not found: {actor_id}. Check the actor ID.",
-                status_code=404,
-            )
-        if response.status_code == 402:
-            raise ApifyError(
-                "Apify account usage limit reached. Upgrade plan or wait.",
-                status_code=402,
-            )
-    
-        raise ApifyError(
-            f"Apify returned {response.status_code}: {response.text[:200]}",
-            status_code=response.status_code,
-        )
+        items = response.json()
+        logger.info(f"Apify run complete actor={actor_id} items={len(items) if isinstance(items, list) else 'N/A'}")
+        return items if isinstance(items, list) else []
     async def get_run_status(self, run_id:str) -> dict[str, Any]:
         token = self._settings.APIFY_TOKEN
         url = f"{APIFY_BASE}/actor-runs/{run_id}"

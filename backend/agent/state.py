@@ -4,9 +4,6 @@ agent/state.py
 CaseState — the longitudinal memory of a single investigation.
 thread_id = case_id means all runs for the same case share this state.
 LangGraph's PostgresSaver checkpointer persists it between runs.
-
-operator.add on list fields means nodes APPEND, never overwrite.
-This is the "never replace the state" rule from the architecture doc.
 """
 
 from __future__ import annotations
@@ -14,9 +11,6 @@ from __future__ import annotations
 import operator
 from typing import Annotated
 from typing_extensions import TypedDict
-from tools.tiktok_search import TikTokPost, TikTokSearchResult
-from tools.video_analysis import VideoSignals
-
 
 # ── Sub-types ─────────────────────────────────────────────────────────────────
 
@@ -64,6 +58,7 @@ class ClusterState(TypedDict):
     cluster_id: str
     label: str                  # human-readable label generated from top claims
     claim_ids: list[str]
+    _point_ids: list[str]       # Qdrant internal IDs
     platform_breakdown: dict    # {"tiktok": 12, "reddit": 5, ...}
     crowd_score: float
     final_score: float
@@ -99,21 +94,26 @@ class CaseState(TypedDict):
 
     # ── Identity (set once, never changes) ───────────────────────────────────
     case_id: str
-    run_id :str
+    run_id: str
     subject_name: str
     subject_description: str    # fed into video analysis + claim extraction
 
     # ── Accumulated across ALL runs (operator.add = append) ──────────────────
     all_posts: Annotated[list[IncomingPost], operator.add]
     all_claims: Annotated[list[ExtractedClaim], operator.add]
-    all_clusters: Annotated[list[ClusterState], operator.add]
-    all_leads: Annotated[list[LeadState], operator.add]
+    
+    # ── Replaced across runs (NO operator.add for evolving sets) ─────────────
+    all_clusters: list[ClusterState]
+    all_leads: list[LeadState]
+    
     agent_trace: Annotated[list[AgentStep], operator.add]
 
     # TikTok-specific accumulated
     analyzed_post_ids: Annotated[list[str], operator.add]   # prevents re-analysis
 
     # ── Current run (reset / replaced each run) ───────────────────────────────
+    current_search_keywords: list[str]
+    last_tiktok_result: dict | None             # Raw dict output, NEVER Pydantic
     current_posts: list[IncomingPost]           # posts ingested this run
     current_claims: list[ExtractedClaim]        # claims extracted this run
     current_clusters: list[ClusterState]        # clusters updated this run

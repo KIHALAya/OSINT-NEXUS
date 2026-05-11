@@ -77,7 +77,7 @@ async def call_local_llm(
         payload["response_format"] = response_format
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             result = resp.json()

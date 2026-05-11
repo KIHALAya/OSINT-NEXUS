@@ -1,5 +1,6 @@
 import hashlib 
 import logging
+import traceback
 from typing import Any
 from langchain_core.tools import tool 
 from pydantic import BaseModel ,Field
@@ -76,54 +77,53 @@ class TikTokScraper:
     ) -> list[TikTokPost]:
         """
         Searches TikTok for posts matching the given keywords.
- 
-        The clockworks/tiktok-scraper actor treats keywords as hashtag
-        searches internally. We pass them under both `hashtags` and
-        `keywords` fields since the actor's behaviour changed across
-        versions — providing both ensures compatibility.
- 
-        proxyConfiguration is important: TikTok blocks datacenter IPs.
-        Using Apify's residential proxy pool significantly improves
-        success rate. "useApifyProxy": true is free within your plan.
+        Uses the 'search' mode which is best for natural language OSINT queries.
         """
+        logger.info(f"Searching TikTok for keywords: {keywords}")
+        
+        # Correct Apify input for clockworks/tiktok-scraper
         run_input: dict[str, Any] = {
-            # Search inputs — provide both to handle actor version differences
-            "hashtags": keywords,
-            "keywords": keywords,
- 
-            # Limit — total results to fetch. The actor will distribute 
-            # this across the keywords/hashtags provided.
-            "resultsLimit": max_results,
- 
-            # Use Apify residential proxies — critical for TikTok
-            "proxyConfiguration": {
-                "useApifyProxy": True,
-                "apifyProxyGroups": ["RESIDENTIAL"],
-            },
- 
-            # Only collect public data
+            "search": keywords,
+            "resultsPerPage": max_results,
+            "proxyCountryCode": "None",
+            "excludePinnedPosts": False,
+            "scrapeRelatedVideos": False,
             "shouldDownloadVideos": False,
             "shouldDownloadCovers": False,
+            "shouldDownloadMusicCovers": False,
+            "shouldDownloadSlideshowImages": False,
             "shouldDownloadSubtitles": False,
         }
- 
+        
         if date_from:
             run_input["dateFrom"] = date_from
- 
-        raw_items = await self._client.run_actor(
-            actor_id=self._settings.APIFY_ACTOR_TIKTOK,
-            run_input=run_input,
-        )
- 
-        posts = []
-        for item in raw_items:
-            try:
-                post = self._map_to_post(item)
-                posts.append(post)
-            except Exception as e:
-                logger.warning(f"Failed to map TikTok item: {e} | item_keys={list(item.keys())}")
- 
-        logger.info(f"TikTok search complete keywords={keywords} posts={len(posts)}")
+
+        all_posts_map = {}
+        try:
+            logger.warning(f"APIFY INPUT: {run_input}")
+            raw_items = await self._client.run_actor(
+                actor_id=self._settings.APIFY_ACTOR_TIKTOK,
+                run_input=run_input,
+            )
+            
+            logger.warning(f"RESULT COUNT: {len(raw_items)}")
+            if raw_items:
+                logger.debug(f"First item keys: {list(raw_items[0].keys())}")
+
+            for item in raw_items:
+                try:
+                    post = self._map_to_post(item)
+                    if post.post_id not in all_posts_map:
+                        all_posts_map[post.post_id] = post
+                except Exception as e:
+                    logger.warning(f"Failed to map item: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error during TikTok search: {e}")
+            traceback.print_exc()
+
+        posts = list(all_posts_map.values())
+        logger.info(f"TikTok search complete. Unique posts: {len(posts)}")
         return posts
  
     @staticmethod
@@ -239,6 +239,7 @@ async def search_tiktok(
  
     except ApifyError as e:
         logger.error(f"TikTok search failed case={case_id}: {e}")
+        traceback.print_exc()
         return TikTokSearchResult(
             query=" | ".join(keywords),
             case_id=case_id,

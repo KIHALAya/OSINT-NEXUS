@@ -141,17 +141,26 @@ async def tiktok_search_node(state: CaseState) -> dict:
 
     logger.info(f"[tiktok_search] case={case_id} keywords={keywords}")
 
-    result = await search_tiktok.ainvoke({
-        "case_id": case_id,
-        "keywords": keywords,
-        "max_results": 100,
-    })
+    try:
+        raw_result = await search_tiktok.ainvoke({
+            "case_id": case_id,
+            "keywords": keywords,
+            "max_results": 100,
+        })
+        result = raw_result.model_dump()
+        decision = f"found={result.get('total_found', 0)} posts"
+        reasoning = f"Apify search completed for keywords: {keywords}. Found {result.get('total_found', 0)} potential leads."
+    except Exception as e:
+        logger.error(f"TikTok search node failed: {e}")
+        decision = "failed"
+        reasoning = f"Search error: {str(e)}"
+        result = None
 
     trace = _make_trace(
         agent="tiktok_search",
         input_summary=f"keywords={keywords}",
-        decision=f"found={result.total_found} posts error={result.error}",
-        reasoning=f"Apify actor={result.apify_actor_used}",
+        decision=decision,
+        reasoning=reasoning,
     )
 
     return {
@@ -163,9 +172,9 @@ async def tiktok_search_node(state: CaseState) -> dict:
 # ── Node 3: tiktok_ingestor ───────────────────────────────────────────────────
 
 async def tiktok_ingestor_node(state: CaseState) -> dict:
-    """Converts TikTokPost objects → platform-agnostic IncomingPost objects."""
+    """Converts raw dict posts → platform-agnostic IncomingPost objects."""
     result = state.get("last_tiktok_result")
-    if not result or not result.posts:
+    if not result or not result.get("posts"):
         return {"current_posts": [], "agent_trace": [_make_trace(
             "tiktok_ingestor", "no posts", "skipped", "No TikTok results to ingest"
         )]}
@@ -173,39 +182,43 @@ async def tiktok_ingestor_node(state: CaseState) -> dict:
     case_id = state["case_id"]
     posts: list[IncomingPost] = []
 
-    for p in result.posts:
-        if not p.text or not p.text.strip():
+    raw_posts = result.get("posts", [])
+    for p in raw_posts:
+        text = p.get("text", "")
+        if not text or not text.strip():
             continue
 
         bot_score = 0.0
-        if p.author_followers < 50 and p.plays > 100_000:
+        followers = p.get("author_followers", 0)
+        plays = p.get("plays", 0)
+        if followers < 50 and plays > 100_000:
             bot_score = 0.5
-        elif p.author_followers < 200 and p.plays > 500_000:
+        elif followers < 200 and plays > 500_000:
             bot_score = 0.35
-        if p.author_verified:
+        if p.get("author_verified"):
             bot_score = max(0.0, bot_score - 0.2)
 
         posts.append(IncomingPost(
-            event_id=f"tiktok_{p.post_id}_{int(time.time())}",
+            event_id=f"tiktok_{p.get('post_id')}_{int(time.time())}",
             case_id=case_id,
             source="tiktok",
-            post_id=p.post_id,
-            normalized_text=p.text,
+            post_id=p.get("post_id", ""),
+            normalized_text=text,
             detected_language="unknown",
             bot_score=bot_score,
             is_duplicate=False,
-            author_id=p.author_id,
-            author_name=p.author_name,
-            author_followers=p.author_followers,
-            author_verified=p.author_verified,
-            engagement_score=p.engagement_score,
-            likes=p.likes,
-            shares=p.shares,
-            plays=p.plays,
-            posted_at=p.posted_at,
-            video_url=getattr(p, "video_download_url", None) or p.url,
-            thumbnail_url=p.thumbnail_url,
-            hashtags=p.hashtags,
+            author_id=p.get("author_id", ""),
+            author_name=p.get("author_name", ""),
+            author_followers=followers,
+            author_verified=bool(p.get("author_verified")),
+            engagement_score=p.get("engagement_score", 0.0),
+            likes=p.get("likes", 0),
+            shares=p.get("shares", 0),
+            plays=plays,
+            posted_at=p.get("posted_at"),
+            video_url=p.get("video_download_url") or p.get("url"),
+            thumbnail_url=p.get("thumbnail_url"),
+            hashtags=p.get("hashtags", []),
             media=[],
         ))
 
@@ -214,9 +227,9 @@ async def tiktok_ingestor_node(state: CaseState) -> dict:
 
     trace = _make_trace(
         agent="tiktok_ingestor",
-        input_summary=f"raw={len(result.posts)}",
+        input_summary=f"raw={len(raw_posts)}",
         decision=f"normalized={len(posts)}",
-        reasoning=f"Dropped {len(result.posts) - len(posts)} empty posts",
+        reasoning=f"Dropped {len(raw_posts) - len(posts)} empty posts",
     )
 
     return {
@@ -252,7 +265,7 @@ async def video_selector_node(state: CaseState) -> dict:
 
     prompt = f"""
     You are an OSINT triage officer. Review these TikTok post captions and select the 
-    top {settings.video_max_per_run} posts that are most likely to contain 
+    top {settings.VIDEO_MAX_PER_RUN} posts that are most likely to contain 
     real investigative signals about the missing person: "{subject_desc}".
     
     Priority: 
@@ -271,7 +284,7 @@ async def video_selector_node(state: CaseState) -> dict:
         selected_ids = res.get("selected_ids", [])
     except Exception as e:
         logger.warning(f"Gemma triage failed, falling back to engagement sort: {e}")
-        selected_ids = [p["id"] for p in sorted(candidates, key=lambda x: x["plays"], reverse=True)[:settings.video_max_per_run]]
+        selected_ids = [p["id"] for p in sorted(candidates, key=lambda x: x["plays"], reverse=True)[:settings.VIDEO_MAX_PER_RUN]]
 
     # Build queue from selected IDs
     queue = []
@@ -379,37 +392,40 @@ async def claim_extractor_node(state: CaseState) -> dict:
     Extracts structured claims from:
       1. Text posts (current_posts normalized_text)
       2. Video analysis spoken claims + location signals (video_analyses_this_run)
-
-    Uses Gemma 4 for local extraction (privacy) and parallelizes calls for speed.
     """
     case_id = state["case_id"]
     subject_desc = state.get("subject_description", "")
-    settings = get_settings()
+    posts = state.get("current_posts", [])
+    video_analyses = state.get("video_analyses_this_run", [])
+
+    if not posts and not video_analyses:
+        return {
+            "current_claims": [],
+            "agent_trace": [_make_trace("claim_extractor", "no posts or video analyses", "skipped", "No data to extract claims from")]
+        }
 
     # ── Path A: extract from text posts (Parallelized) ────────────────────────
-    posts = state.get("current_posts", [])
     tasks = []
+    active_posts = []
     for post in posts:
         text = post.get("normalized_text", "").strip()
         if not text or len(text) < 10:
             continue
-        tasks.append(_llm_extract_claims(text, subject_desc, settings.gemini_api_key))
+        active_posts.append(post)
+        tasks.append(_llm_extract_claims(text, subject_desc, ""))
 
-    # Run up to 10 extractions in parallel
-    results_lists = await asyncio.gather(*tasks)
+    results_lists = []
+    if tasks:
+        results_lists = await asyncio.gather(*tasks)
     
     all_new_claims: list[ExtractedClaim] = []
-    for post, raw_claims in zip(posts, results_lists):
+    for post, raw_claims in zip(active_posts, results_lists):
         for raw in raw_claims:
             statement = raw.get("statement", "").strip()
             if not statement: continue
             
-            # Embedding is still sequential but we could parallelize this too if needed
-            # For now, let's keep it simple or parallelize embeddings if latency is high
-            try:
-                vector = await embed_text(statement)
-            except Exception:
-                vector = []
+            try: vector = await embed_text(statement)
+            except: vector = []
 
             all_new_claims.append(ExtractedClaim(
                 claim_id=_claim_id(),
@@ -426,17 +442,15 @@ async def claim_extractor_node(state: CaseState) -> dict:
             ))
 
     # ── Path B: lift claims from video analysis ───────────────────────────────
-    for analysis in state.get("video_analyses_this_run", []):
+    for analysis in video_analyses:
         if analysis.get("processing_error"): continue
         post_id = analysis.get("post_id", "")
 
         for spoken in analysis.get("spoken_claims", []):
             statement = spoken.get("quote", "").strip()
             if not statement: continue
-            try:
-                vector = await embed_text(statement)
-            except Exception:
-                vector = []
+            try: vector = await embed_text(statement)
+            except: vector = []
 
             all_new_claims.append(ExtractedClaim(
                 claim_id=_claim_id(),
@@ -453,9 +467,9 @@ async def claim_extractor_node(state: CaseState) -> dict:
 
     trace = _make_trace(
         agent="claim_extractor",
-        input_summary=f"posts={len(posts)}",
+        input_summary=f"posts={len(active_posts)} videos={len(video_analyses)}",
         decision=f"extracted={len(all_new_claims)} claims",
-        reasoning=f"Parallelized Gemma 4 extraction ({len(tasks)} concurrent tasks)",
+        reasoning=f"Processed {len(active_posts)} text posts and {len(video_analyses)} video analyses. Found {len(all_new_claims)} investigative claims.",
     )
 
     return {
@@ -566,7 +580,7 @@ async def clustering_node(state: CaseState) -> dict:
     return {
         "current_claims": claims_with_qdrant,
         "current_clusters": updated_clusters,
-        "all_clusters": updated_clusters,
+        "all_clusters": list(cluster_map.values()),
         "agent_trace": [_make_trace("clustering", f"new={len(new_claims)}", f"updated={len(updated_clusters)}", "")]
     }
 
@@ -652,9 +666,12 @@ async def lead_generator_node(state: CaseState) -> dict:
         )
         new_leads.append(lead)
 
+    all_leads = list(state.get("all_leads", []))
+    all_leads.extend(new_leads)
+
     return {
         "current_leads": new_leads,
-        "all_leads": new_leads,
+        "all_leads": all_leads,
         "agent_trace": [_make_trace("lead_generator", f"new={len(new_leads)}", "leads generated", "")]
     }
 

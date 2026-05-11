@@ -223,11 +223,14 @@ async def run_investigation(case_id: str, background_tasks: BackgroundTasks, db:
     if not case: raise HTTPException(status_code=404, detail="Not found")
     graph = await get_graph()
     initial_state = {
-        "case_id": case_id, "subject_name": case.subject_name, "subject_description": case.subject_description or "",
+        "case_id": case_id, "run_id": str(uuid.uuid4()), "subject_name": case.subject_name, "subject_description": case.subject_description or "",
         "all_posts": [], "all_claims": [], "all_clusters": [], "all_leads": [], "agent_trace": [],
-        "analyzed_post_ids": [], "current_posts": [], "current_claims": [], "current_clusters": [],
+        "analyzed_post_ids": [], "current_search_keywords": [], "last_tiktok_result": None,
+        "current_posts": [], "current_claims": [], "current_clusters": [],
         "current_leads": [], "video_analysis_queue": [], "video_analyses_this_run": [],
         "needs_tiktok_search": True, "needs_video_analysis": False, "needs_verification": [], "needs_human_review": False,
+        "tiktok_normalized_posts_this_run": [], "extracted_claims_this_run": [],
+        "scores_this_run": {}, "misinfo_flags_this_run": [], "tiktok_viral_flags": [],
     }
     background_tasks.add_task(_run_graph_blocking, graph, initial_state, case_id)
     return {"status": "running"}

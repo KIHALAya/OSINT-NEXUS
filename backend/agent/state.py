@@ -112,7 +112,8 @@ class CaseState(TypedDict):
     analyzed_post_ids: Annotated[list[str], operator.add]   # prevents re-analysis
 
     # ── Current run (reset / replaced each run) ───────────────────────────────
-    current_search_keywords: list[str]
+    current_search_queries: list[str]
+    current_hashtags: list[str]
     last_tiktok_result: dict | None             # Raw dict output, NEVER Pydantic
     current_posts: list[IncomingPost]           # posts ingested this run
     current_claims: list[ExtractedClaim]        # claims extracted this run

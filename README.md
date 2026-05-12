@@ -13,6 +13,7 @@ To keep information organized and reduce redundancy, our documentation is split 
 | **[🚀 Installation](./docs/INSTALL.md)** | Step-by-step setup guide for local development. |
 | **[🏛 Architecture](./docs/ARCHITECTURE.md)** | High-level system design and service orchestration. |
 | **[🧠 Agent Pipeline](./docs/AGENT_PIPELINE.md)** | Deep dive into LangGraph nodes and AI logic. |
+| **[🚉 Data Flow](./docs/DATA_FLOW.md)** | Step-by-step data lifecycle for debugging. |
 | **[🗄 Data Models](./docs/DATA_MODELS.md)** | Schemas for PostgreSQL, Qdrant, and Graph State. |
 | **[📡 API Reference](./docs/API_REFERENCE.md)** | REST endpoints and background stream listeners. |
 | **[🎨 Frontend Guide](./docs/FRONTEND_GUIDE.md)** | React component map and UI/UX blueprint. |

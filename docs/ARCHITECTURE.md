@@ -9,8 +9,9 @@ This document outlines the high-level design and service orchestration of the OS
 OSINT-SENTINEL transitions traditional OSINT from a manual, reactive search to an autonomous, agentic pipeline. It is designed to "hunt" for data rather than simply waiting for queries.
 
 ### Principles
-- **Mandatory Ingestion:** Every investigation run begins with fresh data acquisition.
+- **Deterministic Bootstrap:** Initial ingestion uses exact subject names and normalized hashtags rather than speculative LLM keywords.
 - **Hybrid Intelligence:** Orchestrates between local LLMs (privacy/cost) and high-power multimodal APIs (vision).
+- **Streaming Intelligence:** LLM expansion and discovery occur in the streaming layer, keeping the bootstrap phase focused on high-relevance signals.
 - **Semantic Persistence:** Uses vector embeddings to group disparate signals into cohesive "evidence clusters."
 
 ---

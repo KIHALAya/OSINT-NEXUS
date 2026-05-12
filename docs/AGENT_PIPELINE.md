@@ -18,7 +18,10 @@ The agent is built using **LangGraph**, implemented in `backend/agent/nodes.py`.
 
 ### 1. `bootstrap_node`
 - **Goal:** Strategy generation.
-- **Logic:** Analyzes the subject name and description to generate 5-10 context-aware search keywords (e.g., location variations, specific hashtags).
+- **Logic:** Generates deterministic search signals:
+    - **Exact Name:** The subject's full name.
+    - **Normalized Hashtag:** Subject's name lowercased, spaces and punctuation removed (e.g., "Gabby Petito" → `gabbypetito`).
+- **Why:** Deterministic hashtags return far higher quality investigative results on platforms like TikTok than AI-generated phrases. LLM expansion is deferred to the streaming intelligence layer.
 
 ### 2. `tiktok_search_node`
 - **Goal:** Data acquisition.

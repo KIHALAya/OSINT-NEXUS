@@ -41,28 +41,23 @@ class TikTokSearchResult(BaseModel):
 
 class TikTokSearchInput(BaseModel):
     case_id: str = Field(description="Investigation case ID, e.g. CASE-2024-0847")
-    keywords: list[str] = Field(
-        description=(
-            "Search terms in any language. Use the subject's name, location, "
-            "and descriptive phrases. Arabic/French/Darija all work. "
-            "Example: ['john doe missing', 'chicago missing person', 'missing silver alert']"
-        )
+    search_queries: list[str] = Field(
+        description="Exact names or phrases to search for."
+    )
+    hashtags: list[str] = Field(
+        default=[],
+        description="Hashtags (without #) to search for."
     )
     max_results: int = Field(
         default=30,
         ge=1,
         le=100,
-        description="Max posts to retrieve. Keep ≤ 50 during investigation to stay within Apify limits.",
-    )
-    date_from: str | None = Field(
-        default=None,
-        description="Only return posts from this date onward. ISO format: '2024-01-15'",
+        description="Max posts to retrieve.",
     )
 
 class TikTokScraper:
     """
     Wraps the Apify clockworks/tiktok-scraper actor.
-    Can be used directly in tests or other services without the @tool wrapper.
     """
  
     def __init__(self):
@@ -71,19 +66,19 @@ class TikTokScraper:
  
     async def search(
         self,
-        keywords: list[str],
+        search_queries: list[str],
+        hashtags: list[str] = [],
         max_results: int = 30,
-        date_from: str | None = None,
     ) -> list[TikTokPost]:
         """
-        Searches TikTok for posts matching the given keywords.
-        Uses the 'search' mode which is best for natural language OSINT queries.
+        Searches TikTok for posts matching the given searchQueries and hashtags.
         """
-        logger.info(f"Searching TikTok for keywords: {keywords}")
+        logger.info(f"Searching TikTok: queries={search_queries}, hashtags={hashtags}")
         
         # Correct Apify input for clockworks/tiktok-scraper
         run_input: dict[str, Any] = {
-            "search": keywords,
+            "searchQueries": search_queries,
+            "hashtags": hashtags,
             "resultsPerPage": max_results,
             "proxyCountryCode": "None",
             "excludePinnedPosts": False,
@@ -93,22 +88,23 @@ class TikTokScraper:
             "shouldDownloadMusicCovers": False,
             "shouldDownloadSlideshowImages": False,
             "shouldDownloadSubtitles": False,
+            "commentsPerPost": 0,
+            "topLevelCommentsPerPost": 0,
+            "maxRepliesPerComment": 0,
+            "shouldDownloadAvatars": False,
+            "maxFollowersPerProfile": 0,
+            "maxFollowingPerProfile": 0
         }
         
-        if date_from:
-            run_input["dateFrom"] = date_from
-
         all_posts_map = {}
         try:
-            logger.warning(f"APIFY INPUT: {run_input}")
+            logger.info(f"APIFY INPUT: {run_input}")
             raw_items = await self._client.run_actor(
                 actor_id=self._settings.APIFY_ACTOR_TIKTOK,
                 run_input=run_input,
             )
             
-            logger.warning(f"RESULT COUNT: {len(raw_items)}")
-            if raw_items:
-                logger.debug(f"First item keys: {list(raw_items[0].keys())}")
+            logger.info(f"RESULT COUNT: {len(raw_items)}")
 
             for item in raw_items:
                 try:
@@ -128,23 +124,9 @@ class TikTokScraper:
  
     @staticmethod
     def _map_to_post(item: dict[str, Any]) -> TikTokPost:
-        """
-        Maps raw Apify clockworks/tiktok-scraper output to TikTokPost.
- 
-        Apify's TikTok scraper returns fields like:
-          id, webVideoUrl, text, authorMeta{}, musicMeta{},
-          diggCount (likes), shareCount, playCount, commentCount,
-          createTimeISO, hashtags[], mentions[]
- 
-        Field names can shift between actor versions — we use .get()
-        everywhere and provide safe defaults.
-        """
         author = item.get("authorMeta", {})
-        stats = item  # top-level for engagement stats
- 
+        stats = item 
         text = item.get("text", "") or ""
- 
-        # Compute content hash for cross-platform dedup
         content_hash = hashlib.sha256(text.encode()).hexdigest()[:16]
  
         likes = int(stats.get("diggCount", 0) or 0)
@@ -156,8 +138,6 @@ class TikTokScraper:
             (likes + shares * 3 + comments * 2) / max(plays, 1) * 1000, 4
         )
  
-        # Extract hashtags — Apify returns them as list of {name: str} objects
-        # or sometimes as plain strings depending on actor version
         raw_hashtags = item.get("hashtags", []) or []
         hashtags = []
         for h in raw_hashtags:
@@ -201,36 +181,24 @@ class TikTokScraper:
 @tool(args_schema=TikTokSearchInput)
 async def search_tiktok(
     case_id: str,
-    keywords: list[str],
+    search_queries: list[str],
+    hashtags: list[str] = [],
     max_results: int = 30,
-    date_from: str | None = None,
 ) -> TikTokSearchResult:
     """
-    Search TikTok for posts related to a missing persons investigation.
- 
-    Use this tool when:
-    - You need to find crowd sightings or tips posted on TikTok
-    - The case involves a young person (TikTok's primary demographic)
-    - You want to cross-reference claims found on other platforms
-    - You need to check if viral misinformation is spreading on TikTok
- 
-    The tool searches by keyword and hashtag simultaneously.
-    Results include engagement metrics, which the scoring agent uses
-    to compute crowd credibility scores.
- 
-    Always pass the case_id so results can be traced back to the case.
+    Search TikTok for posts using deterministic searchQueries and hashtags.
     """
     settings = get_settings()
     scraper = TikTokScraper()
  
     try:
         posts = await scraper.search(
-            keywords=keywords,
+            search_queries=search_queries,
+            hashtags=hashtags,
             max_results=max_results,
-            date_from=date_from,
         )
         return TikTokSearchResult(
-            query=" | ".join(keywords),
+            query=" | ".join(search_queries + hashtags),
             case_id=case_id,
             posts=posts,
             total_found=len(posts),
@@ -241,11 +209,10 @@ async def search_tiktok(
         logger.error(f"TikTok search failed case={case_id}: {e}")
         traceback.print_exc()
         return TikTokSearchResult(
-            query=" | ".join(keywords),
+            query=" | ".join(search_queries + hashtags),
             case_id=case_id,
             posts=[],
             total_found=0,
             apify_actor_used=settings.APIFY_ACTOR_TIKTOK,
             error=str(e),
         )
- 
